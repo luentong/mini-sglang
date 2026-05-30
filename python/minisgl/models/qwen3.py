@@ -5,7 +5,9 @@ from typing import TYPE_CHECKING, Tuple
 import torch
 from minisgl.core import get_global_ctx
 from minisgl.layers import BaseOP, OPList, ParallelLMHead, RMSNormFused, VocabParallelEmbedding
-from minisgl.utils import nvtx_annotate
+from minisgl.utils import init_logger, nvtx_annotate
+
+logger = init_logger(__name__)
 
 from .base import BaseLLMModel
 from .utils import GatedMLP as Qwen3MLP
@@ -75,7 +77,15 @@ class Qwen3ForCausalLM(BaseLLMModel):
         super().__init__()
 
     def forward(self) -> torch.Tensor:
-        output = self.model.forward(get_global_ctx().batch.input_ids)
+        batch = get_global_ctx().batch
+        input_ids = batch.input_ids
+        logger.info(
+            "[LEARN] models/qwen3.py → Qwen3 forward: phase=%s, input_ids.shape=%s, num_layers=%d",
+            batch.phase,
+            tuple(input_ids.shape),
+            len(self.model.layers.op_list),
+        )
+        output = self.model.forward(input_ids)
         logits = self.lm_head.forward(output)
         return logits
 

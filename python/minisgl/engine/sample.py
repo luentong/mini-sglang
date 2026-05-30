@@ -4,7 +4,9 @@ from dataclasses import dataclass
 from typing import TYPE_CHECKING, List
 
 import torch
-from minisgl.utils import is_sm90_supported, nvtx_annotate
+from minisgl.utils import is_sm90_supported, init_logger, nvtx_annotate
+
+logger = init_logger(__name__)
 
 if TYPE_CHECKING:
     from minisgl.core import Batch
@@ -71,5 +73,15 @@ class Sampler:
     def sample(self, logits: torch.Tensor, args: BatchSamplingArgs) -> torch.Tensor:
         with torch.cuda.nvtx.range("Sampler"):
             if args.temperatures is None:  # greedy sampling
-                return torch.argmax(logits, dim=-1)
-            return sample_impl(logits.float(), args.temperatures, args.top_k, args.top_p)
+                tokens = torch.argmax(logits, dim=-1)
+                logger.info("[LEARN] engine/sample.py → Greedy 采样: token_ids=%s", tokens.tolist())
+                return tokens
+            tokens = sample_impl(logits.float(), args.temperatures, args.top_k, args.top_p)
+            logger.info(
+                "[LEARN] engine/sample.py → 随机采样 (T=%s, top_k=%s, top_p=%s): token_ids=%s",
+                args.temperatures.tolist() if args.temperatures is not None else None,
+                args.top_k.tolist() if args.top_k is not None else None,
+                args.top_p.tolist() if args.top_p is not None else None,
+                tokens.tolist(),
+            )
+            return tokens

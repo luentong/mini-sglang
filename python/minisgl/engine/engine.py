@@ -50,6 +50,12 @@ class Engine:
         with torch.device("meta"), torch_dtype(config.dtype):
             self.model = create_model(config.model_config)
         self.model.load_state_dict(self._load_weight_state_dict(config))
+        logger.info_rank0(
+            "[LEARN] engine/engine.py → 模型权重加载完成: %s, dtype=%s, layers=%d",
+            config.model_config.model_type,
+            config.dtype,
+            config.model_config.num_layers,
+        )
 
         # ======================= KV cache initialization ========================
         self.num_pages = self._determine_num_pages(init_free_memory, config)
@@ -190,16 +196,28 @@ class Engine:
 
     def forward_batch(self, batch: Batch, args: BatchSamplingArgs) -> ForwardOutput:
         assert torch.cuda.current_stream() == self.stream
+        use_cuda_graph = self.graph_runner.can_use_cuda_graph(batch)
         with self.ctx.forward_batch(batch):
-            if self.graph_runner.can_use_cuda_graph(batch):
+            if use_cuda_graph:
                 logits = self.graph_runner.replay(batch)
             else:
                 logits = self.model.forward()
+
+        logger.info(
+            "[LEARN] engine/engine.py → forward_batch: phase=%s, cuda_graph=%s, logits_shape=%s",
+            batch.phase,
+            use_cuda_graph,
+            tuple(logits.shape),
+        )
 
         for req in batch.reqs:
             req.complete_one()
 
         next_tokens_gpu = self.sampler.sample(logits[: batch.size], args).to(torch.int32)
+        logger.info(
+            "[LEARN] engine/engine.py → 采样完成: token_ids=%s",
+            next_tokens_gpu[: batch.size].tolist(),
+        )
         next_tokens_cpu = next_tokens_gpu.to("cpu", non_blocking=True)
         copy_done_event = torch.cuda.Event()
         copy_done_event.record(self.stream)

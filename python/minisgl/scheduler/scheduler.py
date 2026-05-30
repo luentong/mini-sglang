@@ -153,6 +153,13 @@ class Scheduler(SchedulerIOMixin):
                 finished = not req.can_decode
                 if not req.sampling_params.ignore_eos:
                     finished |= next_token == self.eos_token_id
+                logger.info(
+                    "[LEARN] scheduler/scheduler.py → 采样结果 uid=%d, token_id=%d, finished=%s, phase=%s",
+                    req.uid,
+                    next_token,
+                    finished,
+                    "prefill" if batch.is_prefill else "decode",
+                )
                 reply.append(DetokenizeMsg(uid=req.uid, next_token=next_token, finished=finished))
 
                 # NOTE: overlap scheduling may make the request freed twice, skip second free
@@ -173,6 +180,12 @@ class Scheduler(SchedulerIOMixin):
         elif isinstance(msg, ExitMsg):
             raise KeyboardInterrupt
         elif isinstance(msg, UserMsg):
+            logger.info(
+                "[LEARN] scheduler/scheduler.py → 收到 UserMsg uid=%d, input_len=%d, max_tokens=%d",
+                msg.uid,
+                len(msg.input_ids),
+                msg.sampling_params.max_tokens,
+            )
             logger.debug_rank0("Received user msg: %s", msg)
             input_len, max_seq_len = len(msg.input_ids), self.engine.max_seq_len
             max_output_len = max_seq_len - input_len
@@ -218,15 +231,26 @@ class Scheduler(SchedulerIOMixin):
 
     def _schedule_next_batch(self) -> ForwardInput | None:
         # TODO: support other policies: e.g. DECODE first
-        batch = (
-            self.prefill_manager.schedule_next_batch(self.prefill_budget)
-            or self.decode_manager.schedule_next_batch()
-        )
+        prefill_batch = self.prefill_manager.schedule_next_batch(self.prefill_budget)
+        batch = prefill_batch or self.decode_manager.schedule_next_batch()
+        if batch:
+            logger.info(
+                "[LEARN] scheduler/scheduler.py → 调度 batch: phase=%s, num_reqs=%d, uids=%s",
+                batch.phase,
+                len(batch.reqs),
+                [r.uid for r in batch.reqs],
+            )
         return self._prepare_batch(batch) if batch else None
 
     def _forward(self, forward_input: ForwardInput) -> ForwardOutput:
         batch, sample_args, input_mapping, output_mapping = forward_input
         batch.input_ids = self.token_pool[input_mapping]
+        logger.info(
+            "[LEARN] scheduler/scheduler.py → _forward: phase=%s, batch_size=%d, input_tokens=%d",
+            batch.phase,
+            batch.size,
+            batch.input_ids.numel(),
+        )
         forward_output = self.engine.forward_batch(batch, sample_args)
         self.token_pool[output_mapping] = forward_output.next_tokens_gpu
         self.decode_manager.filter_reqs(forward_input.batch.reqs)

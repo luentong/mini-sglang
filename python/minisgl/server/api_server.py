@@ -263,6 +263,12 @@ async def v1_completions(req: OpenAICompletionRequest, request: Request):
 
     # TODO: support more sampling parameters
     uid = state.new_user()
+    logger.info(
+        "[LEARN] api_server.py → 收到 /v1/chat/completions 请求 uid=%d, max_tokens=%d, stream=%s",
+        uid,
+        req.max_tokens,
+        req.stream,
+    )
     await state.send_one(
         TokenizeMsg(
             uid=uid,
@@ -290,6 +296,11 @@ async def v1_completions(req: OpenAICompletionRequest, request: Request):
         if ack.finished:
             break
 
+    logger.info(
+        "[LEARN] api_server.py → 请求 uid=%d 完成，返回 %d 字符给客户端",
+        uid,
+        len(full_content),
+    )
     return {
         "id": f"chatcmpl-{uid}",
         "object": "chat.completion",

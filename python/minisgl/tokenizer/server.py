@@ -70,6 +70,14 @@ def tokenize_worker(
             assert len(detokenize_msg) + len(tokenize_msg) + len(abort_msg) == len(pending_msg)
             if len(detokenize_msg) > 0:
                 replies = detokenize_manager.detokenize(detokenize_msg)
+                for msg, reply in zip(detokenize_msg, replies, strict=True):
+                    logger.info(
+                        "[LEARN] tokenizer/server.py → Detokenize: uid=%d, token_id=%d → %r, finished=%s",
+                        msg.uid,
+                        msg.next_token,
+                        reply,
+                        msg.finished,
+                    )
                 batch_output = BatchFrontendMsg(
                     data=[
                         UserReply(
@@ -86,6 +94,12 @@ def tokenize_worker(
 
             if len(tokenize_msg) > 0:
                 tensors = tokenize_manager.tokenize(tokenize_msg)
+                for msg, t in zip(tokenize_msg, tensors, strict=True):
+                    logger.info(
+                        "[LEARN] tokenizer/server.py → Tokenize: uid=%d, prompt→%d tokens, 发往 Scheduler",
+                        msg.uid,
+                        t.numel(),
+                    )
                 batch_output = BatchBackendMsg(
                     data=[
                         UserMsg(

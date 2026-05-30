@@ -18,6 +18,11 @@ def _run_scheduler(args: ServerArgs, ack_queue: mp.Queue[str]) -> None:
     from minisgl.scheduler import Scheduler
 
     with torch.inference_mode():
+        logger = init_logger(__name__)
+        logger.info(
+            "[LEARN] launch.py → 启动 Scheduler 子进程 (TP rank=%d)，负责调度与 GPU 推理",
+            args.tp_info.rank,
+        )
         scheduler = Scheduler(args)
         scheduler.sync_all_ranks()
 
